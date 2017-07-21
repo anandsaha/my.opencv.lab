@@ -66,7 +66,9 @@ int main()
     cout << image.col(0).size() << endl;
     */
 
-    Mat image2(Size(600, 400), CV_8UC3, Scalar(63, 100, 255));
+    Mat image2(Size(600, 400), CV_8UC3, Scalar(255, 80, 20));
+    imshow("Blah", image2);
+    waitKey(0);
     showImage2(image2);
 
     return 0;

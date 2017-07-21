@@ -1,8 +1,10 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/core/core.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #include <iostream>
 #include <cstdlib>
 #include <vector>
+#include <cmath>
 
 using namespace std;
 using namespace cv;
@@ -63,8 +65,53 @@ vector<uchar> getPiecewiseLinearTx(int r1, int s1, int r2, int s2) {
     return LUT;
 }
 
+// Log Transformation
+vector<uchar> getLogTx(int maxVal) {
+
+    double c = 255 / log10(maxVal + 1);
+    vector<uchar> LUT(256, 0);
+
+    for(int i = 0; i < 256; ++i)
+        LUT[i] = (int) round(c * log10(i + 1));
+
+    return LUT;
+}
+
+double base = 1.02;
+
+// Inverse-Log (Exponential) Transformation
+vector<uchar> getExpTx(int maxVal) {
+
+    double c = 255.0 / (pow(base, maxVal) + 1);
+    vector<uchar> LUT(256, 0);
+
+    for(int i = 0; i < 256; ++i)
+        LUT[i] = (int) round(c * (pow(base, i) - 1));
+
+    return LUT;
+}
 
 
+// Log transformation using opencv
+void doLogTx(Mat image, const char* title, int type /*1 = Log, 2 = Exp*/) {
+
+    cv::destroyAllWindows();
+
+    Mat processed_img;
+    image.convertTo(processed_img, CV_32F);
+    processed_img += 1;
+
+    if (type == 1)
+        cv::log(processed_img, processed_img);
+    else
+        cv::pow(processed_img, base, processed_img); // Not working as expected
+
+    
+    cv::normalize(processed_img, processed_img, 0, 255, cv::NORM_MINMAX);
+    cv::convertScaleAbs(processed_img, processed_img);
+    imshow(title, processed_img);
+    waitKey(0);
+}
 
 int main()
 {
@@ -73,9 +120,19 @@ int main()
     vector<uchar> vn = getNegativeTx();
     vector<uchar> vp = getPiecewiseLinearTx(60, 55, 195, 200);
 
+    double maxVal;
+    minMaxLoc(image, NULL, &maxVal);
+    vector<uchar> vl = getLogTx(maxVal);
+    vector<uchar> ve = getExpTx(maxVal);
+
     processImage(image.clone(), vi, "Identity transformation");
     processImage(image.clone(), vn, "Negative transformation");
     processImage(image.clone(), vp, "Piecewise linear transformation");
+    processImage(image.clone(), vl, "Log transformation");
+    processImage(image.clone(), ve, "Exponential transformation");
+
+    doLogTx(image.clone(), "Log tx using OpenCV", 1);
+    doLogTx(image.clone(), "Exp tx using OpenCV", 2);
 
     return 0;
 }
