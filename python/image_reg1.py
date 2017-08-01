@@ -9,8 +9,8 @@ def deskew():
     plt.imshow(im_out, 'gray')
     plt.show()
 
-orig_image = cv2.imread(r'1.jpg', 0)
-skewed_image = cv2.imread(r'3.jpg', 0)
+orig_image = cv2.imread(r'../images/example4/1.jpg', 0)
+skewed_image = cv2.imread(r'../images/example4/2.jpg', 0)
 
 surf = cv2.xfeatures2d.SURF_create(400)
 kp1, des1 = surf.detectAndCompute(orig_image, None)
