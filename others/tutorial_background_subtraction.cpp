@@ -34,6 +34,44 @@ void help()
         << "--------------------------------------------------------------------------" << endl
         << endl;
 }
+
+// Common processing function
+void processImage(Mat im, vector<uchar>& LUT, const char* title) {
+    for(int r = 0; r < im.rows; ++r)
+        for(int c = 0; c < im.cols; ++c)
+            im.at<uchar>(r, c) = LUT[im.at<uchar>(r, c)];
+
+    // imshow(title, im);
+    // waitKey(0);
+}
+
+// Log Transformation
+vector<uchar> getLogTx(int maxVal) {
+
+    double c = 255 / log10(maxVal + 1);
+    vector<uchar> LUT(256, 0);
+
+    for(int i = 0; i < 256; ++i)
+        LUT[i] = (int) round(c * log10(i + 1));
+
+    return LUT;
+}
+
+double base = 1.02;
+
+// Inverse-Log (Exponential) Transformation
+vector<uchar> getExpTx(int maxVal) {
+
+    double c = 255.0 / (pow(base, maxVal) + 1);
+    vector<uchar> LUT(256, 0);
+
+    for(int i = 0; i < 256; ++i)
+        LUT[i] = (int) round(c * (pow(base, i) - 1));
+
+    return LUT;
+}
+
+
 int main(int argc, char* argv[])
 {
     //print help information
@@ -103,14 +141,23 @@ void processVideo(char* videoFilename) {
     //delete capture object
     capture.release();
 }
-void processImages(char* fistFrameFilename) {
-    //read the first file of the sequence
-    frame = imread(fistFrameFilename);
-    
+
+void preprocess(Mat frame) {
+
     Mat hsv;
     //cvtColor(frame,hsv,CV_BGR2HSV);
     //frame = hsv;
-    medianBlur(frame, frame, 13);
+    medianBlur(frame, frame, 7);
+    double maxVal;
+    minMaxLoc(frame, NULL, &maxVal);
+    vector<uchar> ve = getExpTx(maxVal);
+    processImage(frame, ve, "Exponential transformation");
+}
+
+void processImages(char* fistFrameFilename) {
+    //read the first file of the sequence
+    frame = imread(fistFrameFilename, cv::IMREAD_GRAYSCALE);
+    preprocess(frame);
 
     if(frame.empty()){
         //error in opening the first image
@@ -141,11 +188,15 @@ void processImages(char* fistFrameFilename) {
         putText(frame, frameNumberString.c_str(), cv::Point(15, 15),
                 FONT_HERSHEY_SIMPLEX, 0.5 , cv::Scalar(0,0,0));
 
+        // Anand Added
         //cv::addWeighted(fgMaskMOG2, 0.2, frame, 1 - 0.2, 0, frame);
+        Mat maskedImage;
+        cv::bitwise_and(frame, fgMaskMOG2, maskedImage);
 
         //show the current frame and the fg masks
         imshow("Frame", frame);
         imshow("FG Mask MOG 2", fgMaskMOG2);
+        imshow("Masked", maskedImage);
         //get the input from the keyboard
         keyboard = (char)waitKey(0);
         //search for the next image in the sequence
@@ -154,12 +205,9 @@ void processImages(char* fistFrameFilename) {
         string nextFrameNumberString = oss.str();
         string nextFrameFilename = prefix + nextFrameNumberString + suffix;
         //read the next frame
-        frame = imread(nextFrameFilename);
- 
-        //cvtColor(frame,hsv,CV_BGR2HSV);
-        //frame = hsv;
-        medianBlur(frame, frame, 13);
-
+        frame = imread(nextFrameFilename, cv::IMREAD_GRAYSCALE);
+        preprocess(frame);
+        
         if(frame.empty()){
             //error in opening the next image in the sequence
             cerr << "Unable to open image frame: " << nextFrameFilename << endl;
