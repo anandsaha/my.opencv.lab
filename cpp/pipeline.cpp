@@ -51,15 +51,30 @@ vector<uchar> getExpTx(int maxVal) {
 }
 
 
-void preprocess(Mat frame, unsigned int blur_factor) {
+void preprocess(Mat frame, unsigned int blur_factor, bool increase_contrast = true) {
 
-    Mat hsv;
-    //cvtColor(frame,hsv,CV_BGR2HSV);
+    //Convert BGR (Blue Green Red) to HSV (Hue Sat Val)
+    //Mat hsv;
+    //cvtColor(frame,hsv, cv::COLOR_BGR2HSV_FULL);
     //frame = hsv;
-    medianBlur(frame, frame, blur_factor);
+
+    // Put a threshold
+    cv::threshold(frame, frame, cv::THRESH_OTSU, 100, cv::THRESH_TOZERO);
+
+    // Blur the image
+    //cv::medianBlur(frame, frame, blur_factor);
+    //cv::GaussianBlur(frame, frame, cv::Size(blur_factor, blur_factor), 0);
+    cv::bilateralFilter(frame.clone(), frame, blur_factor, 100, 100);
+
+
+    // Increase the contrast
     double maxVal;
     minMaxLoc(frame, NULL, &maxVal);
-    vector<uchar> ve = getExpTx(maxVal);
+    vector<uchar> ve;
+    if (increase_contrast)
+        ve = getExpTx(maxVal);
+    else
+        ve = getLogTx(maxVal);
     apply_lut(frame, ve, "Exponential transformation");
 }
 
@@ -86,10 +101,10 @@ Mat align_images(Mat first_image, Mat second_image) {
     return first_image;
 }
 
-Mat detect_change(Mat image1, Mat image2, unsigned int blur_factor = 7) {
+Mat detect_change(Mat image1, Mat image2, unsigned int blur_factor = 7, bool increase_contrast = true) {
 
-    preprocess(image1, blur_factor);
-    preprocess(image2, blur_factor);
+    preprocess(image1, blur_factor, increase_contrast);
+    preprocess(image2, blur_factor, increase_contrast);
 
     Mat                         fgMaskMOG2; 
     Ptr<BackgroundSubtractor>   pMOG2;
@@ -97,6 +112,14 @@ Mat detect_change(Mat image1, Mat image2, unsigned int blur_factor = 7) {
     pMOG2 = createBackgroundSubtractorMOG2();
     pMOG2->apply(image1, fgMaskMOG2);
     pMOG2->apply(image2, fgMaskMOG2);
+/*
+    double maxVal;
+    double minVal;
+    minMaxLoc(fgMaskMOG2, &minVal, &maxVal);
+    cout << minVal << ", " << maxVal << endl;
+    cv::threshold(fgMaskMOG2, fgMaskMOG2, cv::THRESH_OTSU, 150, cv::THRESH_TOZERO);
+*/
+
     return fgMaskMOG2;
 
 }
@@ -106,6 +129,28 @@ void show_img(const char* title, Mat image)
     imshow(title, image);
     waitKey(0);
     cv::destroyAllWindows();
+}
+
+Mat mask_img(Mat image, Mat mask)
+{
+    // "channels" is a vector of 3 Mat arrays:
+    vector<Mat> channels(3);
+    // split img:
+    split(image, channels);
+
+    for(int r = 0; r < mask.rows; ++r)
+        for(int c = 0; c < mask.cols; ++c) {
+            cout << mask.at<uchar>(r, c) << endl;  
+            if (mask.at<uchar>(r, c) > 0)
+                channels[2] += mask.at<uchar>(r, c);
+        }
+    merge(channels, image);
+
+    /*
+    Mat output;
+    cv::bitwise_and(image, image, output, mask = mask);
+    */
+    return image;
 }
 
 int main(int argc, char** argv)
@@ -125,8 +170,9 @@ int main(int argc, char** argv)
     cout << "Image 1: " << rawimage1name << endl;
     cout << "Image 2: " << rawimage2name << endl;
 
-    Mat rawimage1 = imread(rawimage1name, cv::IMREAD_GRAYSCALE);
-    Mat rawimage2 = imread(rawimage2name, cv::IMREAD_GRAYSCALE);
+    int mode = cv::IMREAD_GRAYSCALE;
+    Mat rawimage1 = imread(rawimage1name, mode);
+    Mat rawimage2 = imread(rawimage2name, mode);
 
     if(rawimage1.empty()){
         cerr << "Unable to open first image frame: " << rawimage1name << endl;
@@ -143,10 +189,15 @@ int main(int argc, char** argv)
     show_img("Original Image 2", rawimage2);
 
     // Step 1: Align the first image wrt the second image
-    rawimage1 = align_images(rawimage1, rawimage2);
+    // rawimage1 = align_images(rawimage1, rawimage2);
     // Step 2: Detect changes
-    // Mat mask = detect_change(rawimage1, rawimage2, blur_factor);
-    // show_img("The Mask", mask);
+    Mat mask1 = detect_change(rawimage1.clone(), rawimage2.clone(), blur_factor, true);
+    Mat mask2 = detect_change(rawimage1.clone(), rawimage2.clone(), blur_factor, false);
+    //mask_img(rawimage2, mask);
+    Mat mask;
+    cv::bitwise_and(mask1, mask2, mask);
+    show_img("The Mask", mask);
+
 
     return 0;
 }
