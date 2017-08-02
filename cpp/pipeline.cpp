@@ -11,6 +11,19 @@
 #include "opencv2/bgsegm.hpp"
 #include "opencv2/xfeatures2d.hpp"
 
+#include "opencv2/core.hpp"
+#include "opencv2/features2d.hpp"
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/highgui.hpp"
+#include "opencv2/xfeatures2d.hpp"
+#include "opencv2/calib3d/calib3d.hpp"
+
+#include "opencv2/core/core.hpp"
+#include "opencv2/features2d/features2d.hpp"
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/calib3d/calib3d.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
+
 
 using namespace std;
 using namespace cv;
@@ -78,14 +91,85 @@ void preprocess(Mat frame, unsigned int blur_factor, bool increase_contrast = tr
     apply_lut(frame, ve, "Exponential transformation");
 }
 
+Mat align_images(Mat img_1, Mat img_2)
+{    
+    //-- Step 1: Detect the keypoints using SURF Detector
+    int minHessian = 400;
+
+    //SurfFeatureDetector detector( minHessian );
+    Ptr<xfeatures2d::SURF> detector = xfeatures2d::SURF::create(minHessian);
+
+    std::vector<KeyPoint> keypoints_1, keypoints_2;
+
+    detector->detect( img_1, keypoints_1 );
+    detector->detect( img_2, keypoints_2 );
+
+    //-- Step 2: Calculate descriptors (feature vectors)
+    //SurfDescriptorExtractor extractor;
+    Ptr<xfeatures2d::SURF> extractor = xfeatures2d::SURF::create();
+
+    Mat descriptors_1, descriptors_2;
+
+    extractor->compute( img_1, keypoints_1, descriptors_1 );
+    extractor->compute( img_2, keypoints_2, descriptors_2 );
+
+    //-- Step 3: Matching descriptor vectors using FLANN matcher
+    FlannBasedMatcher matcher;
+    std::vector< DMatch > matches;
+    matcher.match( descriptors_1, descriptors_2, matches );
+
+    double max_dist = 0; double min_dist = 100;
+
+    //-- Quick calculation of max and min distances between keypoints
+    for( int i = 0; i < descriptors_1.rows; i++ )
+    { 
+        double dist = matches[i].distance;
+        if( dist < min_dist ) min_dist = dist;
+        if( dist > max_dist ) max_dist = dist;
+    }
+
+    printf("-- Max dist : %f \n", max_dist );
+    printf("-- Min dist : %f \n", min_dist );
+
+
+    //-- Draw only "good" matches (i.e. whose distance is less than 2*min_dist,
+    //-- or a small arbitary value ( 0.02 ) in the event that min_dist is very
+    //-- small)
+    //-- PS.- radiusMatch can also be used here.
+    std::vector< DMatch > good_matches;
+
+    for( int i = 0; i < descriptors_1.rows; i++ )
+    { if( matches[i].distance <= max(2*min_dist, 0.02) )
+        { good_matches.push_back( matches[i]); }
+    }
+
+    //-- Localize the object
+    std::vector<Point2f> obj;
+    std::vector<Point2f> scene;
+
+    for( int i = 0; i < good_matches.size(); i++ )
+    {
+        //-- Get the keypoints from the good matches
+        obj.push_back( keypoints_1[ good_matches[i].queryIdx ].pt );
+        scene.push_back( keypoints_2[ good_matches[i].trainIdx ].pt );
+    }
+
+    Mat H = findHomography( obj, scene, CV_RANSAC );
+
+    Mat output;
+    warpPerspective(img_1, output, H, img_2.size());
+    return output;
+}
+/*
 Mat align_images(Mat first_image, Mat second_image) {
     int minHessian = 400;
 
-    Ptr<SURF> detector = SURF::create( minHessian );
+    Ptr<SURF> detector = SURF::create(minHessian);
     std::vector<KeyPoint> keypoints_1, keypoints_2;
+    Mat desc1, desc2, mask;
 
-    detector->detect(first_image, keypoints_1);
-    detector->detect(second_image, keypoints_2);
+    detector->detectAndCompute(first_image, mask, keypoints_1, desc1);
+    detector->detectAndCompute(second_image, mask, keypoints_2, desc2);
 
     //-- Draw keypoints
     Mat img_keypoints_1; Mat img_keypoints_2;
@@ -98,8 +182,10 @@ Mat align_images(Mat first_image, Mat second_image) {
     imshow("Keypoints 2", img_keypoints_2 );
 
     waitKey(0);
+
     return first_image;
 }
+*/
 
 Mat detect_change(Mat image1, Mat image2, unsigned int blur_factor = 7, bool increase_contrast = true) {
 
@@ -133,6 +219,21 @@ void show_img(const char* title, Mat image)
 
 Mat mask_img(Mat image, Mat mask)
 {
+
+    //cout << "Image size: " << image.size().height << ", " << image.size().width << endl;
+    //cout << "Mask  size: " << mask.size().height << ", " << mask.size().width << endl;
+
+    for(int r = 0; r < mask.rows; ++r) {
+        for(int c = 0; c < mask.cols; ++c) {
+            if ((int)mask.at<uchar>(r, c)  == 255) {
+                //image.at<Vec3b>(r, c).val[0] = 100;
+                //image.at<Vec3b>(r, c).val[1] = 100;
+                image.at<Vec3b>(r, c).val[2] = 10;
+            }
+        }
+    }
+
+    /*
     // "channels" is a vector of 3 Mat arrays:
     vector<Mat> channels(3);
     // split img:
@@ -143,9 +244,11 @@ Mat mask_img(Mat image, Mat mask)
             cout << mask.at<uchar>(r, c) << endl;  
             if (mask.at<uchar>(r, c) > 0)
                 channels[2] += mask.at<uchar>(r, c);
+                image.at<Vec3b>(r, c)[1]
         }
     merge(channels, image);
 
+    */
     /*
     Mat output;
     cv::bitwise_and(image, image, output, mask = mask);
@@ -185,21 +288,28 @@ int main(int argc, char** argv)
     }
 
 
-    show_img("Original Image 1", rawimage1);
-    show_img("Original Image 2", rawimage2);
+    //show_img("Original Image 1", rawimage1);
+    //show_img("Original Image 2", rawimage2);
 
     // Step 1: Align the first image wrt the second image
-    // rawimage1 = align_images(rawimage1, rawimage2);
+    rawimage1 = align_images(rawimage1, rawimage2);
+    //show_img("Aligned image", rawimage1);
+    //exit(0);
+
     // Step 2: Detect changes
     Mat mask1 = detect_change(rawimage1.clone(), rawimage2.clone(), blur_factor, true);
     Mat mask2 = detect_change(rawimage1.clone(), rawimage2.clone(), blur_factor, false);
-    //mask_img(rawimage2, mask);
     Mat mask;
     cv::bitwise_and(mask1, mask2, mask);
+    cv::threshold(mask, mask, 100, 255, cv::THRESH_BINARY);
+
+    // Step 3: Overlay the mask on the second image
+    Mat rawimage2_show = imread(rawimage2name, cv::IMREAD_COLOR);
+    mask_img(rawimage2_show, mask);
     show_img("The Mask", mask);
+    show_img("The Difference", rawimage2_show);
 
 
     return 0;
 }
-
 
