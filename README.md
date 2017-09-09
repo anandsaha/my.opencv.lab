@@ -1,4 +1,4 @@
-My practice code from the book Learning OpenCV 3 Application Development by Samyak Datta
+Computer Vision recipies
 
 After installing OpenCV 3, the cpp files can be compiled like so:
 
